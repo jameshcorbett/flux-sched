@@ -84,6 +84,7 @@ set(ALL_TESTS
   t5000-valgrind.t
   t5100-issues-test-driver.t
   t5101-issue-1284.t
+  t5102-issue-1284-noslot.t
   t6000-graph-size.t
   t6001-match-formats.t
   t6002-graph-hwloc.t
