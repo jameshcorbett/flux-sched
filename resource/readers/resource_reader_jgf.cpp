@@ -1007,6 +1007,7 @@ int resource_reader_jgf_t::update_vertices (resource_graph_t &g,
     int rc = -1;
     unsigned int i = 0;
     fetch_helper_t fetcher;
+    std::vector<fetch_helper_t> additional_vertices;
 
     for (i = 0; i < json_array_size (nodes); i++) {
         fetcher.scrub ();
@@ -1014,11 +1015,27 @@ int resource_reader_jgf_t::update_vertices (resource_graph_t &g,
             goto done;
         if ((rc = update_vtx (g, m, vmap, fetcher, update_data)) != 0)
             goto done;
+        if (fetch_additional_vertices (g, m, vmap, fetcher, additional_vertices) < 0)
+            goto done;
+        for (auto it = additional_vertices.begin (); it != additional_vertices.end (); ++it) {
+            if ((rc = update_vtx (g, m, vmap, fetcher, update_data)) != 0)
+                goto done;
+        }
     }
     rc = 0;
 
 done:
     return rc;
+}
+
+int resource_reader_jgf_t::fetch_additional_vertices (
+    resource_graph_t &g,
+    resource_graph_metadata_t &m,
+    std::map<std::string, vmap_val_t> &vmap,
+    fetch_helper_t &fetcher,
+    std::vector<fetch_helper_t> &additional_vertices)
+{
+    return 0;
 }
 
 int resource_reader_jgf_t::unpack_edge (json_t *element,

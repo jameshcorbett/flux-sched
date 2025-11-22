@@ -131,7 +131,7 @@ class resource_reader_jgf_t : public resource_reader_base_t {
      */
     virtual bool is_allowlist_supported ();
 
-   private:
+   protected:
     int fetch_jgf (const std::string &str,
                    json_t **jgf_p,
                    json_t **nodes_p,
@@ -201,6 +201,11 @@ class resource_reader_jgf_t : public resource_reader_base_t {
                          std::map<std::string, vmap_val_t> &vmap,
                          json_t *nodes,
                          jgf_updater_data &updater_data);
+    virtual int fetch_additional_vertices (resource_graph_t &g,
+                                           resource_graph_metadata_t &m,
+                                           std::map<std::string, vmap_val_t> &vmap,
+                                           fetch_helper_t &fetcher,
+                                           std::vector<fetch_helper_t> &additional_vertices);
     int unpack_edge (json_t *element,
                      std::map<std::string, vmap_val_t> &vmap,
                      std::string &source,
@@ -236,7 +241,7 @@ class resource_reader_jgf_t : public resource_reader_base_t {
 }  // namespace resource_model
 }  // namespace Flux
 
-#endif  // RESOURCE_READER_GRUG_HPP
+#endif  // RESOURCE_READER_JGF_HPP
 
 /*
  * vi:tabstop=4 shiftwidth=4 expandtab
