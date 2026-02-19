@@ -23,7 +23,16 @@ extern "C" {
 namespace Flux {
 namespace resource_model {
 
-enum class match_format_t { SIMPLE, JGF, JGF_SHORTHAND, RLITE, RV1, RV1_NOSCHED, PRETTY_SIMPLE };
+enum class match_format_t {
+    SIMPLE,
+    JGF,
+    JGF_SHORTHAND,
+    RLITE,
+    RV1,
+    RV1_NOSCHED,
+    RV1_SHORTHAND,
+    PRETTY_SIMPLE
+};
 
 /*! Base match writers class for a matched resource set
  */
@@ -254,6 +263,16 @@ class rv1_match_writers_t : public match_writers_t {
     int64_t m_expiration = 0;
     std::map<std::string, std::string> m_attrs;
     jgf_match_writers_t jgf_writer;
+};
+
+/*! R Version 1 match writers class with jgf_shorthand
+ */
+class rv1_shorthand_match_writers_t : public rv1_match_writers_t {
+   protected:
+    jgf_match_writers_t &get_jgf () override;
+
+   private:
+    jgf_shorthand_match_writers_t jgf_writer;
 };
 
 /*! R Version 1 with no "scheduling" key match writers class
