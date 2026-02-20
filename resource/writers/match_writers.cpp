@@ -1218,6 +1218,15 @@ int rv1_nosched_match_writers_t::emit_tm (uint64_t start_tm, uint64_t end_tm)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// RV1 Nosched Writers Class Method Definitions
+////////////////////////////////////////////////////////////////////////////////
+
+jgf_match_writers_t &rv1_shorthand_match_writers_t::get_jgf ()
+{
+    return jgf_writer;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // PRETTY Simple Writers Class Public Method Definitions
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1299,6 +1308,9 @@ std::shared_ptr<match_writers_t> match_writers_factory_t::create (match_format_t
             case match_format_t::RV1_NOSCHED:
                 w = std::make_shared<rv1_nosched_match_writers_t> ();
                 break;
+            case match_format_t::RV1_SHORTHAND:
+                w = std::make_shared<rv1_shorthand_match_writers_t> ();
+                break;
             case match_format_t::PRETTY_SIMPLE:
                 w = std::make_shared<pretty_sim_match_writers_t> ();
                 break;
@@ -1328,6 +1340,8 @@ match_format_t match_writers_factory_t::get_writers_type (const std::string &n)
         format = match_format_t::RV1;
     else if (n == "rv1_nosched")
         format = match_format_t::RV1_NOSCHED;
+    else if (n == "rv1_shorthand")
+        format = match_format_t::RV1_SHORTHAND;
     else if (n == "pretty_simple")
         format = match_format_t::PRETTY_SIMPLE;
     return format;
@@ -1336,7 +1350,8 @@ match_format_t match_writers_factory_t::get_writers_type (const std::string &n)
 bool known_match_format (const std::string &format)
 {
     return (format == "simple" || format == "jgf" || format == "jgf_shorthand" || format == "rlite"
-            || format == "rv1" || format == "rv1_nosched" || format == "pretty_simple");
+            || format == "rv1" || format == "rv1_nosched" || format == "rv1_shorthand"
+            || format == "pretty_simple");
 }
 
 }  // namespace resource_model
