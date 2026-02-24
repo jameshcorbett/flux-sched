@@ -965,13 +965,19 @@ static int grow_resource_db (std::shared_ptr<resource_ctx_t> &ctx, json_t *resou
     struct idset *grow_set = NULL;
     json_t *r_lite = NULL;
     json_t *jgf = NULL;
+    int jgf_complete = 1;
     auto guard = resource_type_t::storage_t::open_for_scope ();
 
     if ((rc = unpack_resources (resources, &grow_set, &r_lite, &jgf, duration)) < 0) {
         flux_log_error (ctx->h, "%s: unpack_resources", __FUNCTION__);
         goto done;
     }
-    if (jgf && ctx->opts.get_opt ().get_load_format () != "rv1exec_force") {
+    if (jgf) {
+        json_unpack (jgf, "{s:{s:{s:b}}}", "graph", "metadata", "complete", &jgf_complete);
+    }
+    // only complete JGF is useful here; for incomplete JGF we have to fall
+    // back to rv1exec. Assume JGF is complete by default
+    if (jgf && ctx->opts.get_opt ().get_load_format () != "rv1exec_force" && jgf_complete) {
         if (ctx->reader == nullptr && (rc = create_reader (ctx, "jgf")) < 0) {
             flux_log (ctx->h, LOG_ERR, "%s: can't create jgf reader", __FUNCTION__);
             goto done;
