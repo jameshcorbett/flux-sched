@@ -1303,6 +1303,7 @@ static int parse_R (std::shared_ptr<resource_ctx_t> &ctx,
     int rc = 0;
     int version = 0;
     int saved_errno;
+    int jgf_complete = 1;
     double tstart = 0;
     double expiration = 0;
     double max = static_cast<double> (std::numeric_limits<int64_t>::max ());
@@ -1360,7 +1361,17 @@ static int parse_R (std::shared_ptr<resource_ctx_t> &ctx,
         }
         R_graph_fmt = jgf_str;
         free (jgf_str);
-        format = "jgf";
+        if (json_unpack (graph, "{s?:{s?:{s?:b}}}", "graph", "metadata", "complete", &jgf_complete)
+            < 0) {
+            errno = EINVAL;
+            flux_log (ctx->h, LOG_ERR, "%s: json_unpack", __FUNCTION__);
+            goto freemem_out;
+        }
+        if (jgf_complete) {
+            format = "jgf";
+        } else {
+            format = "jgf_shorthand";
+        }
     } else {
         // Use the rv1exec reader
         R_graph_fmt = R;
@@ -1468,6 +1479,16 @@ static int run (std::shared_ptr<resource_ctx_t> &ctx,
             flux_log (ctx->h,
                       LOG_ERR,
                       "%s: create JGF reader (id=%jd)",
+                      __FUNCTION__,
+                      static_cast<intmax_t> (jobid));
+            goto out;
+        }
+    } else if (format == "jgf_shorthand") {
+        if ((rd = create_resource_reader ("jgf_shorthand")) == nullptr) {
+            rc = -1;
+            flux_log (ctx->h,
+                      LOG_ERR,
+                      "%s: create jgf_shorthand reader (id=%jd)",
                       __FUNCTION__,
                       static_cast<intmax_t> (jobid));
             goto out;
