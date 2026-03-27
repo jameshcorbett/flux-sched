@@ -80,12 +80,53 @@ test_expect_success 'agfilters are correct: all have used:0' '
         | .agfilter.node | startswith(\"used:0\")" agfilter_output.json
 '
 
-test_expect_success 'start a rabbit job' '
+test_expect_success 'start a rabbit job and leave it running' '
     # take node-exclusive rabbit JSON jobspec and change it to execute `sleep 30`
-    # so the jobs are still running when we reload the scheduler
+    # so the job is still running when we reload the scheduler
     jq ".tasks[0].command = [\"sleep\", \"30\"]" rabbit_jobspec.json > rabbit_jobspec_sleep.json &&
     jobid=$(flux job submit rabbit_jobspec_sleep.json) &&
     flux job wait-event ${jobid} alloc
+'
+
+test_expect_success 'agfilters are correct for storage_node' '
+    flux ion-resource find -q --format=jgf agfilter=true \
+        | jq . > agfilter_active_jobs.json &&
+    # one rabbit should show that one core is allocated
+    rabbit_cores_used=$(jq ".graph.nodes[].metadata | select(.type == \"storage_node\") | .agfilter.core
+        | startswith(\"used:1\")" agfilter_active_jobs.json | grep true | wc -l) &&
+    echo "${rabbit_cores_used}" == 1 &&
+    test "${rabbit_cores_used}" -eq 1
+'
+
+test_expect_success 'agfilters are correct for cluster' '
+    # one ssd should be allocated, size 793
+    jq -e ".graph.nodes[].metadata | select(.type == \"cluster\") | .agfilter.ssd
+        | startswith(\"used:793\")" agfilter_active_jobs.json &&
+    jq -e ".graph.nodes[].metadata | select(.type == \"cluster\")
+        | .agfilter.node | startswith(\"used:1\")" agfilter_active_jobs.json &&
+    jq -e ".graph.nodes[].metadata | select(.type == \"cluster\")
+        | .agfilter.core | startswith(\"used:3\")" agfilter_active_jobs.json
+'
+
+test_expect_success 'agfilters are correct for chassis' '
+    # one of the two chassis should show one node and three cores used
+    # the "storage_node" does not count as a node, otherwise it would be two nodes used
+    chassis_nodes_used=$(jq ".graph.nodes[].metadata | select(.type == \"chassis\") | .agfilter.node
+        | startswith(\"used:1\")" agfilter_active_jobs.json | grep true | wc -l) &&
+    echo "${chassis_nodes_used}" == 1 &&
+    test "${chassis_nodes_used}" -eq 1
+    chassis_cores_used=$(jq ".graph.nodes[].metadata | select(.type == \"chassis\") | .agfilter.core
+        | startswith(\"used:3\")" agfilter_active_jobs.json | grep true | wc -l) &&
+    echo "${chassis_cores_used}" == 1 &&
+    test "${chassis_cores_used}" -eq 1
+'
+
+test_expect_success 'agfilters are correct for node' '
+    # one node should show that both of its two cores are allocated
+    cores_used=$(jq ".graph.nodes[].metadata | select(.type == \"node\") | .agfilter.core
+        | startswith(\"used:2\")" agfilter_active_jobs.json | grep true | wc -l) &&
+    echo "${cores_used}" == 1 &&
+    test "${cores_used}" -eq 1
 '
 
 test_expect_success 'reload the scheduler' '
