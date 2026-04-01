@@ -14,6 +14,8 @@ extern "C" {
 #endif
 }
 
+#include <iostream>
+
 #include "resource/traversers/dfu_impl.hpp"
 
 using namespace Flux::Jobspec;
@@ -216,6 +218,8 @@ int dfu_impl_t::accum_to_parent (vtx_t u,
     else
         accum_if (subsystem, (*m_graph)[u].type, (*m_graph)[u].size - needs, to_parent);
 
+    std::cout << "In accum_to_parent for " << std::to_string (u) << " type: " << (*m_graph)[u].type
+              << " name: " << (*m_graph)[u].name << " id: " << (*m_graph)[u].id << std::endl;
     // Pass up the new subtree aggregates collected so far to the parent.
     for (auto &kv : dfu)
         accum_if (subsystem, kv.first, kv.second, to_parent);

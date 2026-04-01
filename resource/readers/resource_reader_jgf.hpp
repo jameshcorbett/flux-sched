@@ -241,7 +241,14 @@ class resource_reader_jgf_t : public resource_reader_base_t {
                          resource_graph_metadata_t &m,
                          std::map<std::string, vmap_val_t> &vmap,
                          json_t *nodes,
+                         uint64_t token,
                          jgf_updater_data &updater_data);
+    int fetch_additional_edges (resource_graph_t &g,
+                                resource_graph_metadata_t &m,
+                                std::map<std::string, vmap_val_t> &vmap,
+                                fetch_helper_t fetcher,
+                                uint64_t token,
+                                jgf_updater_data &update_data);
     virtual int fetch_additional_vertices (resource_graph_t &g,
                                            resource_graph_metadata_t &m,
                                            std::map<std::string, vmap_val_t> &vmap,

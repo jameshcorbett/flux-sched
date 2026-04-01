@@ -5,6 +5,8 @@ extern "C" {
 #include <flux/idset.h>
 }
 
+#include <iostream>
+
 #include "resource/readers/resource_reader_jgf_shorthand.hpp"
 
 using namespace Flux;
@@ -69,6 +71,11 @@ int resource_reader_jgf_shorthand_t::recursively_collect_vertices (
         if (recursively_collect_vertices (g, target, additional_vertices) < 0) {
             return -1;
         }
+    }
+    std::cout << "Recursively collected vertices: " << std::to_string (additional_vertices.size ())
+              << std::endl;
+    for (const auto &vertex : additional_vertices) {
+        std::cout << vertex.name << " " << vertex.id << std::endl;
     }
     return 0;
 }

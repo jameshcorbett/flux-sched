@@ -15,6 +15,7 @@ extern "C" {
 #include <flux/idset.h>
 }
 
+#include <iostream>
 #include <map>
 #include <unordered_set>
 #include <unistd.h>
@@ -958,31 +959,75 @@ done:
     return rc;
 }
 
+int resource_reader_jgf_t::fetch_additional_edges (resource_graph_t &g,
+                                                   resource_graph_metadata_t &m,
+                                                   std::map<std::string, vmap_val_t> &vmap,
+                                                   fetch_helper_t fetcher,
+                                                   uint64_t token,
+                                                   jgf_updater_data &update_data)
+{
+    vtx_t v;
+    int rc = -1;
+    std::map<std::string, vmap_val_t> empty_vmap{};
+    std::string vertex_id = std::to_string (fetcher.uniq_id);
+    fetcher.vertex_id = vertex_id.c_str ();
+    std::cout << "entering edge update logic for: " << vertex_id << std::endl;
+    if ((rc = resource_reader_jgf_t::find_vtx (g, m, empty_vmap, fetcher, v)) != 0)
+        return -1;
+    if (v == boost::graph_traits<resource_graph_t>::null_vertex ()) {
+        return -1;
+    }
+    f_out_edg_iterator_t ei, ei_end;
+    for (boost::tie (ei, ei_end) = boost::out_edges (v, g); ei != ei_end; ++ei) {
+        if (g[*ei].subsystem != containment_sub)
+            continue;
+        std::string target_str = std::to_string (boost::target (*ei, g));
+        std::cout << "Updating edge from: " << vertex_id << " to " << target_str << std::endl;
+        if (update_src_edge (g, m, vmap, vertex_id, token) < 0
+            || update_tgt_edge (g, m, vmap, vertex_id, target_str, token) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
 int resource_reader_jgf_t::update_vertices (resource_graph_t &g,
                                             resource_graph_metadata_t &m,
                                             std::map<std::string, vmap_val_t> &vmap,
                                             json_t *nodes,
+                                            uint64_t token,
                                             jgf_updater_data &update_data)
 {
     int rc = -1;
     unsigned int i = 0;
-    fetch_helper_t fetcher;
+    fetch_helper_t original_fetcher;
     std::vector<fetch_helper_t> additional_vertices;
     std::map<std::string, vmap_val_t> empty_vmap{};
 
     for (i = 0; i < json_array_size (nodes); i++) {
-        fetcher.scrub ();
+        original_fetcher.scrub ();
         additional_vertices.clear ();
-        if ((rc = unpack_vtx (json_array_get (nodes, i), fetcher)) != 0)
+        if ((rc = unpack_vtx (json_array_get (nodes, i), original_fetcher)) != 0)
             goto done;
-        if ((rc = update_vtx (g, m, vmap, fetcher, update_data)) != 0)
+        if ((rc = update_vtx (g, m, vmap, original_fetcher, update_data)) != 0)
             goto done;
-        if (fetch_additional_vertices (g, m, empty_vmap, fetcher, additional_vertices) != 0)
+        if (fetch_additional_vertices (g, m, empty_vmap, original_fetcher, additional_vertices)
+            != 0)
             goto done;
         for (auto &fetcher : additional_vertices) {
             std::string vertex_id = std::to_string (fetcher.uniq_id);
             fetcher.vertex_id = vertex_id.c_str ();
             if ((rc = update_vtx (g, m, vmap, fetcher, update_data)) != 0) {
+                goto done;
+            }
+        }
+        if (additional_vertices.size () > 0
+            && fetch_additional_edges (g, m, vmap, original_fetcher, token, update_data) < 0) {
+            goto done;
+        }
+        // iterate through again to add edges
+        for (auto &fetcher : additional_vertices) {
+            if (fetch_additional_edges (g, m, vmap, fetcher, token, update_data) < 0) {
                 goto done;
             }
         }
@@ -1160,7 +1205,8 @@ int resource_reader_jgf_t::update_tgt_edge (resource_graph_t &g,
     if (!found) {
         errno = EINVAL;
         m_err_msg += __FUNCTION__;
-        m_err_msg += ": JGF edge not found in resource graph.\n";
+        m_err_msg += ": JGF edge from " + source + " to ";
+        m_err_msg += target + " not found in resource graph.\n";
         goto done;
     }
     g[e].idata.set_for_trav_update (vmap[target].needs, vmap[target].exclusive, token);
@@ -1295,7 +1341,7 @@ int resource_reader_jgf_t::update (resource_graph_t &g,
 
     if ((rc = fetch_jgf (str, &jgf, &nodes, &edges, update_data)) != 0)
         goto done;
-    if ((rc = update_vertices (g, m, vmap, nodes, update_data)) != 0) {
+    if ((rc = update_vertices (g, m, vmap, nodes, token, update_data)) != 0) {
         undo_vertices (g, vmap, update_data);
         goto done;
     }
@@ -1332,7 +1378,7 @@ int resource_reader_jgf_t::partial_cancel (resource_graph_t &g,
     p_cancel_data.update = false;
     if ((rc = fetch_jgf (R, &jgf, &nodes, &edges, p_cancel_data)) != 0)
         goto done;
-    if ((rc = update_vertices (g, m, vmap, nodes, p_cancel_data)) != 0)
+    if ((rc = update_vertices (g, m, vmap, nodes, 0, p_cancel_data)) != 0)
         goto done;
 
     for (const auto &[rank, data] : p_cancel_data.rank_to_data) {
