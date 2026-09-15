@@ -13,12 +13,15 @@ extern "C" {
 #include "config.h"
 #endif
 #include <flux/idset.h>
+#include <flux/hostlist.h>
 }
 
 #include <map>
 #include <unordered_set>
 #include <unistd.h>
 #include <regex>
+#include <sstream>
+#include <string_view>
 #include <jansson.h>
 #include <boost/optional/optional.hpp>
 
@@ -58,6 +61,121 @@ int resource_reader_jgf_t::set_node_properties (json_t *properties)
         }
         idset_destroy (ranks);
         ranks = nullptr;
+    }
+    return 0;
+}
+
+int resource_reader_jgf_t::set_node_ranks (json_t *r_lite, json_t *nodelist)
+{
+    size_t index;
+    json_t *entry = NULL;
+    struct idset *ranks = NULL;
+    struct idset *entry_ranks = NULL;
+    struct hostlist *hosts = NULL;
+
+    m_node_ranks.clear ();
+    if (!json_is_array (r_lite) || !json_is_array (nodelist)
+        || !(ranks = idset_create (0, IDSET_FLAG_AUTOGROW)) || !(hosts = hostlist_create ()))
+        goto error;
+    json_array_foreach (r_lite, index, entry) {
+        const char *encoded = NULL;
+        unsigned int rank;
+
+        if (json_unpack (entry, "{s:s}", "rank", &encoded) < 0
+            || !(entry_ranks = idset_decode (encoded)))
+            goto inval;
+        rank = idset_first (entry_ranks);
+        while (rank != IDSET_INVALID_ID) {
+            if (idset_test (ranks, rank) || idset_set (ranks, rank) < 0)
+                goto inval;
+            rank = idset_next (entry_ranks, rank);
+        }
+        idset_destroy (entry_ranks);
+        entry_ranks = NULL;
+    }
+    json_array_foreach (nodelist, index, entry) {
+        const char *encoded = json_string_value (entry);
+        if (!encoded || hostlist_append (hosts, encoded) < 0)
+            goto inval;
+    }
+    {
+        unsigned int rank = idset_first (ranks);
+        int host_index = 0;
+        while (rank != IDSET_INVALID_ID) {
+            const char *hostname = hostlist_nth (hosts, host_index++);
+            if (!hostname || !m_node_ranks.emplace (hostname, rank).second)
+                goto inval;
+            rank = idset_next (ranks, rank);
+        }
+        if (hostlist_nth (hosts, host_index))
+            goto inval;
+    }
+    hostlist_destroy (hosts);
+    idset_destroy (ranks);
+    return 0;
+
+inval:
+    errno = EINVAL;
+error:
+    hostlist_destroy (hosts);
+    idset_destroy (entry_ranks);
+    idset_destroy (ranks);
+    m_node_ranks.clear ();
+    return -1;
+}
+
+/* A vertex owns an execution target only if it is a node or a storage_node.
+ * Record where each of those sits in the containment hierarchy so that
+ * reconcile_rank () can anchor any vertex on the host containing it instead
+ * of on whichever path component happens to spell a hostname.
+ */
+int resource_reader_jgf_t::index_host_paths (json_t *nodes)
+{
+    size_t index;
+    json_t *element = NULL;
+
+    m_host_paths.clear ();
+    if (!json_is_array (nodes)) {
+        errno = EINVAL;
+        m_err_msg += __FUNCTION__;
+        m_err_msg += ": JGF nodes key is not an array.\n";
+        return -1;
+    }
+    json_array_foreach (nodes, index, element) {
+        const char *type = NULL;
+        const char *path = NULL;
+        std::size_t sl;
+
+        // Vertices too malformed to yield a type and a containment path are
+        // diagnosed by fill_fetcher (); skip them rather than fail twice.
+        if (json_unpack (element,
+                         "{s:{s:s s:{s?s}}}",
+                         "metadata",
+                         "type",
+                         &type,
+                         "paths",
+                         "containment",
+                         &path)
+            < 0)
+            continue;
+        if (!path
+            || (std::string_view{type} != node_rt.get ()
+                && std::string_view{type} != storage_node_rt.get ()))
+            continue;
+        std::string containment{path};
+        // The hostname is the last path component: containment paths are
+        // built as parent path + "/" + vertex name, and unlike the optional
+        // JGF `name` key it is what the prefix match below compares against.
+        if ((sl = containment.find_last_of ('/')) == std::string::npos
+            || sl + 1 == containment.size ()) {
+            errno = EINVAL;
+            m_err_msg += __FUNCTION__;
+            m_err_msg += ": malformed containment path (" + containment + ") for ";
+            m_err_msg += std::string (type) + " vertex.\n";
+            m_host_paths.clear ();
+            return -1;
+        }
+        m_host_paths[containment] = containment.substr (sl + 1);
     }
     return 0;
 }
@@ -360,6 +478,54 @@ int resource_reader_jgf_t::remap_aware_unpack_vtx (fetch_helper_t &f,
             f.properties[std::string (key)] = std::string (json_string_value (value));
         }
     }
+    return reconcile_rank (f);
+}
+
+/* Return the hostname of the node or storage_node vertex that owns `path`:
+ * the name of the vertex at `path` itself, or of its nearest such ancestor
+ * in the containment hierarchy. Returns nullptr if there is none.
+ */
+const std::string *resource_reader_jgf_t::host_of_path (const std::string &path) const
+{
+    // Trim one component at a time so that the nearest host wins and only
+    // whole components ever match: /c/node1 must not be taken for an
+    // ancestor of /c/node10.
+    std::string ancestor{path};
+
+    while (!ancestor.empty ()) {
+        auto match = m_host_paths.find (ancestor);
+        if (match != m_host_paths.end ())
+            return &match->second;
+        std::size_t sl = ancestor.find_last_of ('/');
+        if (sl == std::string::npos)
+            break;
+        ancestor.erase (sl);
+    }
+    return nullptr;
+}
+
+int resource_reader_jgf_t::reconcile_rank (fetch_helper_t &f)
+{
+    auto path = f.paths.find (containment_sub);
+    if (path == f.paths.end ())
+        return 0;
+    const std::string *hostname = host_of_path (path->second);
+    if (!hostname)
+        return 0;
+    auto match = m_node_ranks.find (*hostname);
+    if (match == m_node_ranks.end ())
+        return 0;  // R says nothing about this host; keep the JGF rank
+    int64_t r_rank = match->second;
+
+    if (f.get_proper_rank () != -1 && f.get_proper_rank () != r_rank) {
+        errno = EINVAL;
+        m_err_msg += __FUNCTION__;
+        m_err_msg += ": rank disagreement for hostname=" + *hostname;
+        m_err_msg += ": R rank=" + std::to_string (r_rank);
+        m_err_msg += ", JGF rank=" + std::to_string (f.get_proper_rank ()) + ".\n";
+        return -1;
+    }
+    f.set_remapped_rank (r_rank);
     return 0;
 }
 
@@ -977,7 +1143,14 @@ int resource_reader_jgf_t::unpack_vertices (resource_graph_t &g,
     vtx_t null_vtx = boost::graph_traits<resource_graph_t>::null_vertex ();
     std::map<subsystem_t, bool> root_checks;
     std::pair<std::map<std::string, vmap_val_t>::iterator, bool> ptr;
-
+    /* Reconciling JGF ranks against R is confined to this initial load: the
+     * JGF fragments the update path sees are R that fluxion's own writer
+     * produced from the already reconciled graph, and update_vertices ()
+     * looks vertices up by their unreconciled JGF rank. m_host_paths is
+     * cleared on the way out so that reconcile_rank () is a no-op there.
+     */
+    if (index_host_paths (nodes) != 0)
+        goto done;
     for (i = 0; i < json_array_size (nodes); i++) {
         fetcher.scrub ();
         if (unpack_vtx (json_array_get (nodes, i), fetcher) != 0)
@@ -1004,6 +1177,7 @@ int resource_reader_jgf_t::unpack_vertices (resource_graph_t &g,
     rc = 0;
 
 done:
+    m_host_paths.clear ();
     return rc;
 }
 

@@ -121,6 +121,12 @@ class resource_reader_jgf_t : public resource_reader_base_t {
      */
     int set_node_properties (json_t *properties);
 
+    /*! Configure authoritative execution ranks from RFC 20 R_lite and
+     *  nodelist objects. JGF vertices associated with these hostnames use
+     *  these ranks when unpacked.
+     */
+    int set_node_ranks (json_t *r_lite, json_t *nodelist);
+
     /*! Unpack str into a resource graph.
      *
      * \param g      resource graph
@@ -217,14 +223,27 @@ class resource_reader_jgf_t : public resource_reader_base_t {
 
    private:
     std::map<int64_t, std::map<std::string, std::string>> m_node_properties;
+    std::map<std::string, int64_t> m_node_ranks;
+    /*! Containment path of each JGF vertex that owns an execution target
+     *  (a `node` or a `storage_node`), mapped to its hostname. Populated
+     *  for the duration of a graph load only; see index_host_paths ().
+     */
+    std::map<std::string, std::string> m_host_paths;
 
     int fetch_jgf (const std::string &str,
                    json_t **jgf_p,
                    json_t **nodes_p,
                    json_t **edges_p,
                    jgf_updater_data &update_data);
+    /*! Index the containment path of every `node` and `storage_node` vertex
+     *  in a JGF nodes array into m_host_paths, so that reconcile_rank () can
+     *  anchor a vertex on the host that contains it.
+     */
+    int index_host_paths (json_t *nodes);
+    const std::string *host_of_path (const std::string &path) const;
     int unpack_and_remap_vtx (fetch_helper_t &f, json_t *paths, json_t *properties);
     int remap_aware_unpack_vtx (fetch_helper_t &f, json_t *paths, json_t *properties);
+    int reconcile_rank (fetch_helper_t &f);
     int fill_fetcher (json_t *element, fetch_helper_t &f, json_t **path, json_t **properties);
     int unpack_vtx (json_t *element, fetch_helper_t &f);
     vtx_t create_vtx (resource_graph_t &g, const fetch_helper_t &fetcher);
