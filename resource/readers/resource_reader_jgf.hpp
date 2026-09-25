@@ -13,6 +13,7 @@
 
 #include <string>
 #include <unordered_set>
+#include <vector>
 #include <jansson.h>
 #include "resource/schema/resource_graph.hpp"
 #include "resource/readers/resource_reader_base.hpp"
@@ -223,7 +224,11 @@ class resource_reader_jgf_t : public resource_reader_base_t {
 
    private:
     std::map<int64_t, std::map<std::string, std::string>> m_node_properties;
-    std::map<std::string, int64_t> m_node_ranks;
+    /*! Ranks R assigns to each hostname, in ascending order. A host that
+     *  runs several brokers appears once per rank in the R nodelist and so
+     *  maps to several ranks here.
+     */
+    std::map<std::string, std::vector<int64_t>> m_node_ranks;
     /*! Containment path of each JGF vertex that owns an execution target
      *  (a `node` or a `storage_node`), mapped to its hostname. Populated
      *  for the duration of a graph load only; see index_host_paths ().

@@ -16,6 +16,7 @@ extern "C" {
 #include <flux/hostlist.h>
 }
 
+#include <algorithm>
 #include <map>
 #include <unordered_set>
 #include <unistd.h>
@@ -99,12 +100,16 @@ int resource_reader_jgf_t::set_node_ranks (json_t *r_lite, json_t *nodelist)
             goto inval;
     }
     {
+        // The nodelist is positional: its Nth host is the host of the Nth
+        // lowest rank. A host running several brokers therefore occurs once
+        // per rank, and collects each of them.
         unsigned int rank = idset_first (ranks);
         int host_index = 0;
         while (rank != IDSET_INVALID_ID) {
             const char *hostname = hostlist_nth (hosts, host_index++);
-            if (!hostname || !m_node_ranks.emplace (hostname, rank).second)
+            if (!hostname)
                 goto inval;
+            m_node_ranks[hostname].push_back (rank);
             rank = idset_next (ranks, rank);
         }
         if (hostlist_nth (hosts, host_index))
@@ -515,17 +520,38 @@ int resource_reader_jgf_t::reconcile_rank (fetch_helper_t &f)
     auto match = m_node_ranks.find (*hostname);
     if (match == m_node_ranks.end ())
         return 0;  // R says nothing about this host; keep the JGF rank
-    int64_t r_rank = match->second;
+    const std::vector<int64_t> &r_ranks = match->second;
 
-    if (f.get_proper_rank () != -1 && f.get_proper_rank () != r_rank) {
+    if (r_ranks.size () == 1) {
+        if (f.get_proper_rank () != -1 && f.get_proper_rank () != r_ranks[0]) {
+            errno = EINVAL;
+            m_err_msg += __FUNCTION__;
+            m_err_msg += ": rank disagreement for hostname=" + *hostname;
+            m_err_msg += ": R rank=" + std::to_string (r_ranks[0]);
+            m_err_msg += ", JGF rank=" + std::to_string (f.get_proper_rank ()) + ".\n";
+            return -1;
+        }
+        f.set_remapped_rank (r_ranks[0]);
+        return 0;
+    }
+    /* R assigns several ranks to this host, so every one of its vertices --
+     * the duplicate host vertices themselves and all of their descendants --
+     * shares one containment path. Nothing in the path says which rank a
+     * given vertex belongs to, so the JGF rank can only be checked for
+     * membership, never replaced.
+     */
+    if (f.get_proper_rank () == -1
+        || std::find (r_ranks.begin (), r_ranks.end (), f.get_proper_rank ()) == r_ranks.end ()) {
         errno = EINVAL;
         m_err_msg += __FUNCTION__;
-        m_err_msg += ": rank disagreement for hostname=" + *hostname;
-        m_err_msg += ": R rank=" + std::to_string (r_rank);
-        m_err_msg += ", JGF rank=" + std::to_string (f.get_proper_rank ()) + ".\n";
+        m_err_msg += ": R assigns " + std::to_string (r_ranks.size ());
+        m_err_msg += " ranks to hostname=" + *hostname + " (";
+        for (std::size_t i = 0; i < r_ranks.size (); i++)
+            m_err_msg += (i ? "," : "") + std::to_string (r_ranks[i]);
+        m_err_msg += "); JGF rank=" + std::to_string (f.get_proper_rank ());
+        m_err_msg += " is not one of them.\n";
         return -1;
     }
-    f.set_remapped_rank (r_rank);
     return 0;
 }
 
