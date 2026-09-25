@@ -1184,7 +1184,7 @@ int resource_reader_jgf_t::unpack_vertices (resource_graph_t &g,
 
         // If the vertex isn't in the graph, add it
         vtx_t v = boost::graph_traits<resource_graph_t>::null_vertex ();
-        if ((v = vtx_in_graph (g, m, fetcher.paths, fetcher.rank)) == null_vtx) {
+        if ((v = vtx_in_graph (g, m, fetcher.paths, fetcher.get_proper_rank ())) == null_vtx) {
             if (add_vtx (g, m, vmap, fetcher) != 0)
                 goto done;
             auto res = added_vtcs.insert (std::string (fetcher.vertex_id));
